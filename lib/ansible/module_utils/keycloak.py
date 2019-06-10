@@ -472,3 +472,47 @@ class KeycloakAPI(object):
 
         except Exception as e:
             self.module.fail_json(msg="Unable to delete group %s: %s" % (groupid, str(e)))
+
+    def get_role_by_name(self, name, realm="master", client_id=None):
+        """ Lookup a role by name. If a client is provided, find the client
+            role. Otherwise, find a realm role.
+
+            :param name: The name of the role.
+            :param realm: The realm.
+            :param client_id: The client which the role belongs to. If None, searches for a realm role.
+        """
+
+        role_url = URL_CLIENT_ROLES if client_id else URL_REALM_ROLES
+        role_url = (role_url + '/{name}').format(url=self.baseurl, realm=realm, id=client_id, name=name)
+
+        try:
+            return open_url(role_url, method='GET', headers=self.restheaders,
+                            validate_certs=self.validate_certs)
+        except HTTPError as e:
+            if e.code == 404:
+                return None
+            else:
+                raise e
+        except Exception as e:
+            self.module.fail_json(msg="Unable to find role %s: %s" % (name, str(e)))
+
+    def create_role(self, name, realm="master", client_id=None):
+        """ Create a role. If a client is provided, craate a client
+            role. Otherwise, create a realm role.
+
+            :param name: The name of the role.
+            :param realm: The realm.
+            :param client_id: The  which the role belongs to. If None, searches for a realm role.
+        """
+
+        role_url = URL_CLIENT_ROLES if client_id else URL_REALM_ROLES
+        role_url = role_url.format(url=self.baseurl, realm=realm, id=client_id)
+
+        body = json.dumps({'name': name})
+
+        try:
+            return open_url(role_url, method='POST', headers=self.restheaders,
+                            data=body, validate_certs=self.validate_certs)
+
+        except Exception as e:
+            self.module.fail_json(msg="Unable to find role %s: %s" % (groupid, str(e)))
