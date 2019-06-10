@@ -114,6 +114,8 @@ response:
     returned: always
 '''
 
+import json
+
 from ansible.module_utils.basic import AnsibleModule
 from ansible.module_utils.keycloak import (
     KeycloakAPI,
@@ -150,11 +152,15 @@ def run_module():
     # Obtain access token, initialize API
     kc = KeycloakAPI(module)
 
-    if state == 'present':
-        role = kc.get_role_by_name(name, realm, client_id)
-        if role is None:
-            kc.create_role(name, realm, client_id)
-
+    role = kc.get_role_by_name(name, realm, client_id)
+    resp = role
+    if state == 'present' and role is None:
+        resp = kc.create_role(name, realm, client_id)
+        result['changed'] = True
+    elif state == 'absent' and role is not None:
+        resp = kc.delete_role(name, realm, client_id)
+        result['changed'] = True
+    result['response'] = json.load(resp)
     module.exit_json(**result)
 
 

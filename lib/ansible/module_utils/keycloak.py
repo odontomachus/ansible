@@ -516,3 +516,21 @@ class KeycloakAPI(object):
 
         except Exception as e:
             self.module.fail_json(msg="Unable to find role %s: %s" % (groupid, str(e)))
+
+    def delete_role(self, name, realm="master", client_id=None):
+        """ Delete a role. If a client is provided, delete the client
+            role. Otherwise, delete the realm role.
+
+            :param name: The name of the role.
+            :param realm: The realm.
+            :param client_id: The client which the role belongs to. If None, searches for a realm role.
+        """
+
+        role_url = URL_CLIENT_ROLES if client_id else URL_REALM_ROLES
+        role_url = (role_url + '/{name}').format(url=self.baseurl, realm=realm, id=client_id, name=name)
+
+        try:
+            return open_url(role_url, method='DELETE', headers=self.restheaders,
+                            validate_certs=self.validate_certs)
+        except Exception as e:
+            self.module.fail_json(msg="Unable to find role %s: %s" % (name, str(e)))
