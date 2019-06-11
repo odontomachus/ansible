@@ -72,6 +72,15 @@ options:
             - The name of the client to create the role in. If left empty the role is created in the realm.
         default: "present"
         choices: ["present", "absent"]
+        required: false
+    attributes:
+        description:
+            - Key-value pairs stored as role attributes in KeyCloak.
+        required: false
+    description:
+        description:
+            - Role description
+        required: false
 
 author:
     - Jonathan Villemaire-Krajden (@odontomachus)
@@ -114,8 +123,6 @@ response:
     returned: always
 '''
 
-import json
-
 from ansible.module_utils.basic import AnsibleModule
 from ansible.module_utils.keycloak import (
     KeycloakAPI,
@@ -125,11 +132,15 @@ from ansible.module_utils.keycloak import (
 
 def run_module():
     # define available arguments/parameters a user can pass to the module
-    module_args = dict(**keycloak_argument_spec(),
-                       realm=dict(type='str', required=True),
-                       client_id=dict(type='str', required=True),
-                       name=dict(type='str', required=True),
-                       state=dict(type='str', choices=['present', 'absent'], default='present'))
+    module_args = dict(
+        **keycloak_argument_spec(),
+        realm=dict(type='str', required=True),
+        client_id=dict(type='str', required=True),
+        name=dict(type='str', required=True),
+        state=dict(type='str', choices=['present', 'absent'], default='present'),
+        description=dict(type='str'),
+        attributes=dict(type='dict')
+    )
 
     result = dict(
         changed=False,
@@ -138,14 +149,14 @@ def run_module():
 
     module = AnsibleModule(
         argument_spec=module_args,
-        supports_check_mode=True
+        supports_check_mode=False
     )
 
     if module.check_mode:
         module.exit_json(**result)
 
     realm = module.params.get('realm')
-    client_id = module.params.get('id')
+    client_id = module.params.get('client_id')
     name = module.params.get('name')
     state = module.params.get('state')
 
@@ -154,13 +165,21 @@ def run_module():
 
     role = kc.get_role_by_name(name, realm, client_id)
     resp = role
-    if state == 'present' and role is None:
-        resp = kc.create_role(name, realm, client_id)
-        result['changed'] = True
+    if state == 'present':
+        if role is None:
+            resp = kc.create_role(name, realm, client_id,
+                                  description=module.params.get('description'),
+                                  attributes=module.params.get('attributes'))
+            result['changed'] = True
+        # Setting the attributes doesn't work on post; only on put.
+        resp = kc.update_role(name, realm, client_id,
+                              description=module.params.get('description'),
+                              attributes=module.params.get('attributes'))
+        result['changed'] |= resp == role
     elif state == 'absent' and role is not None:
         resp = kc.delete_role(name, realm, client_id)
         result['changed'] = True
-    result['response'] = json.load(resp)
+    result['response'] = resp
     module.exit_json(**result)
 
 

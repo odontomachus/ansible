@@ -40,6 +40,8 @@ URL_CLIENT = "{url}/admin/realms/{realm}/clients/{id}"
 URL_CLIENTS = "{url}/admin/realms/{realm}/clients"
 URL_CLIENT_ROLES = "{url}/admin/realms/{realm}/clients/{id}/roles"
 URL_REALM_ROLES = "{url}/admin/realms/{realm}/roles"
+URL_CLIENT_ROLES_BY_ID = "{url}/admin/realms/{realm}/clients/{id}/roles-by-id/{rid}"
+URL_REALM_ROLES_BY_ID = "{url}/admin/realms/{realm}/roles-by-id/{rid}"
 
 URL_CLIENTTEMPLATE = "{url}/admin/realms/{realm}/client-templates/{id}"
 URL_CLIENTTEMPLATES = "{url}/admin/realms/{realm}/client-templates"
@@ -486,17 +488,20 @@ class KeycloakAPI(object):
         role_url = (role_url + '/{name}').format(url=self.baseurl, realm=realm, id=client_id, name=name)
 
         try:
-            return open_url(role_url, method='GET', headers=self.restheaders,
+            resp = open_url(role_url, method='GET', headers=self.restheaders,
                             validate_certs=self.validate_certs)
+            assert resp.getcode() == 200
+            return json.load(resp)
         except HTTPError as e:
             if e.code == 404:
                 return None
             else:
                 raise e
         except Exception as e:
-            self.module.fail_json(msg="Unable to find role %s: %s" % (name, str(e)))
+            self.module.fail_json(
+                msg="Unable to find role {name}: {error}".format(name=name, error=e))
 
-    def create_role(self, name, realm="master", client_id=None):
+    def create_role(self, name, realm="master", client_id=None, description='', attributes={}):
         """ Create a role. If a client is provided, craate a client
             role. Otherwise, create a realm role.
 
@@ -508,14 +513,44 @@ class KeycloakAPI(object):
         role_url = URL_CLIENT_ROLES if client_id else URL_REALM_ROLES
         role_url = role_url.format(url=self.baseurl, realm=realm, id=client_id)
 
-        body = json.dumps({'name': name})
+        body = json.dumps({'name': name, 'description': description, 'attributes': attributes})
 
         try:
-            return open_url(role_url, method='POST', headers=self.restheaders,
+            resp = open_url(role_url, method='POST', headers=self.restheaders,
                             data=body, validate_certs=self.validate_certs)
-
+            assert resp.getcode() == 201
+            resp_body = resp.read()
+            return json.loads(resp_body) if resp_body else True
         except Exception as e:
-            self.module.fail_json(msg="Unable to find role %s: %s" % (groupid, str(e)))
+            self.module.fail_json(
+                msg="Unable to create role {name}: {error}".format(
+                    name=name, error=e))
+
+    def update_role(self, name, realm="master", client_id=None, description='', attributes={}):
+        """ Create a role. If a client is provided, craate a client
+            role. Otherwise, create a realm role.
+
+            :param name: The name of the role.
+            :param realm: The realm.
+            :param client_id: The  which the role belongs to. If None, searches for a realm role.
+        """
+
+        role_url = URL_CLIENT_ROLES if client_id else URL_REALM_ROLES
+        role_url = (role_url + '/{name}').format(url=self.baseurl, realm=realm, id=client_id, name=name)
+
+        body = json.dumps({'name': name, 'description': description, 'attributes': attributes})
+
+        try:
+            resp = open_url(role_url, method='PUT', headers=self.restheaders,
+                            data=body, validate_certs=self.validate_certs)
+            assert resp.getcode() == 204
+            resp_body = resp.read()
+            return json.loads(resp_body) if resp_body else True
+        except Exception as e:
+            self.module.fail_json(
+                msg="Unable to udpate role {name}: {error}".format(
+                    name=name, error=e))
+
 
     def delete_role(self, name, realm="master", client_id=None):
         """ Delete a role. If a client is provided, delete the client
@@ -530,7 +565,13 @@ class KeycloakAPI(object):
         role_url = (role_url + '/{name}').format(url=self.baseurl, realm=realm, id=client_id, name=name)
 
         try:
-            return open_url(role_url, method='DELETE', headers=self.restheaders,
+            resp = open_url(role_url, method='DELETE', headers=self.restheaders,
                             validate_certs=self.validate_certs)
+            if resp.getcode() == 204:
+                return True
+            self.module.fail_json(
+                msg="Failed to delete role: code: {code}\n message: {message}".format(
+                    code=resp.getcode(), message=resp.read()))
         except Exception as e:
-            self.module.fail_json(msg="Unable to find role %s: %s" % (name, str(e)))
+            self.module.fail_json(msg="Unable to delete role {name}: {error}" .format(
+                name=name, error=e))
