@@ -81,13 +81,34 @@ options:
         description:
             - Role description
         required: false
+    composites:
+        description:
+            - Roles that will be a part of this role.
+            - Must include:
+                - name
+            - Optional:
+                - client_id (otherwise looks for realm role)
+                - realm: otherwise uses same realm as parent role.
+        required: false
 
 author:
     - Jonathan Villemaire-Krajden (@odontomachus)
 '''
 
 EXAMPLES = '''
-# Create a realm role
+# Create a role
+- name: Create a realm role
+  local_action:
+    module: keycloak_role
+    auth_client_id: admin-cli
+    auth_keycloak_url: https://auth.example.com/auth
+    auth_realm: master
+    auth_username: USERNAME
+    auth_password: PASSWORD
+    name: ansible
+    state: present
+
+# Create a composite role in a client
 - name: Create an ansible role
   local_action:
     module: keycloak_role
@@ -96,13 +117,21 @@ EXAMPLES = '''
     auth_realm: master
     auth_username: USERNAME
     auth_password: PASSWORD
-    client_id: test
+    name: my_ansible
+    client_id: my-client
     state: present
     attributes:
       world:
         - hello world
       mars:
         - hello mars
+    composites:
+      - name: ansible
+      - name: client_child
+        client_id: my-client
+      - name: other_realm_child
+        client_id: my-client
+        realm: other_realm
 '''
 
 RETURN = '''
@@ -128,11 +157,12 @@ def run_module():
     module_args = dict(
         **keycloak_argument_spec(),
         realm=dict(type='str', required=True),
-        client_id=dict(type='str', required=True),
+        client_id=dict(type='str', required=False),
         name=dict(type='str', required=True),
         state=dict(type='str', choices=['present', 'absent'], default='present'),
         description=dict(type='str'),
-        attributes=dict(type='dict')
+        attributes=dict(type='dict'),
+        composites=dict(type='list', default=[])
     )
 
     result = dict(
@@ -161,13 +191,13 @@ def run_module():
     if state == 'present':
         if role is None:
             resp = kc.create_role(name, realm, client_id,
-                                  description=module.params.get('description'),
-                                  attributes=module.params.get('attributes'))
+                                  description=module.params.get('description'))
             result['changed'] = True
         # Setting the attributes doesn't work on post; only on put.
         resp = kc.update_role(name, realm, client_id,
                               description=module.params.get('description'),
-                              attributes=module.params.get('attributes'))
+                              attributes=module.params.get('attributes'),
+                              composites=module.params.get('composites'))
         result['changed'] |= resp == role
     elif state == 'absent' and role is not None:
         resp = kc.delete_role(name, realm, client_id)

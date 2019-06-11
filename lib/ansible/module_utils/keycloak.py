@@ -513,6 +513,7 @@ class KeycloakAPI(object):
         role_url = URL_CLIENT_ROLES if client_id else URL_REALM_ROLES
         role_url = role_url.format(url=self.baseurl, realm=realm, id=client_id)
 
+        # Attributes don't seem to work here.
         body = json.dumps({'name': name, 'description': description, 'attributes': attributes})
 
         try:
@@ -526,7 +527,7 @@ class KeycloakAPI(object):
                 msg="Unable to create role {name}: {error}".format(
                     name=name, error=e))
 
-    def update_role(self, name, realm="master", client_id=None, description='', attributes={}):
+    def update_role(self, name, realm="master", client_id=None, description='', attributes={}, composites=[]):
         """ Create a role. If a client is provided, craate a client
             role. Otherwise, create a realm role.
 
@@ -545,12 +546,13 @@ class KeycloakAPI(object):
                             data=body, validate_certs=self.validate_certs)
             assert resp.getcode() == 204
             resp_body = resp.read()
+            if composites:
+                self._set_composite_roles(name, realm, client_id, composites)
             return json.loads(resp_body) if resp_body else True
         except Exception as e:
             self.module.fail_json(
                 msg="Unable to udpate role {name}: {error}".format(
                     name=name, error=e))
-
 
     def delete_role(self, name, realm="master", client_id=None):
         """ Delete a role. If a client is provided, delete the client
@@ -575,3 +577,26 @@ class KeycloakAPI(object):
         except Exception as e:
             self.module.fail_json(msg="Unable to delete role {name}: {error}" .format(
                 name=name, error=e))
+
+    def _set_composite_roles(self, name, realm, client_id, composites):
+        role_url = URL_CLIENT_ROLES if client_id else URL_REALM_ROLES
+        role_url = (role_url + '/{name}/composites').format(
+            url=self.baseurl, realm=realm, id=client_id, name=name)
+
+        # Keycloak's API needs a list of RoleReprentation INCLUDING
+        # the id. Fetch the roles by name.
+        try:
+            composites = [self.get_role_by_name(**self._include_realm(realm, composite)) for composite in composites]
+        except Exception as e:
+            e.message = 'Could not find composite roles.'
+            raise e
+
+        body = json.dumps(composites)
+        resp = open_url(role_url, method='POST', headers=self.restheaders,
+                        data=body, validate_certs=self.validate_certs)
+        assert resp.getcode() == 204
+
+    def _include_realm(self, realm, kwargs):
+        if 'realm' not in kwargs:
+            kwargs['realm'] = realm
+        return kwargs
