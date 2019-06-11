@@ -98,18 +98,11 @@ EXAMPLES = '''
     auth_password: PASSWORD
     client_id: test
     state: present
-
-
-# pass in a message and have changed true
-- name: Test with a message and changed output
-  my_new_test_module:
-    name: hello world
-    new: true
-
-# fail the module
-- name: Test failure of the module
-  my_new_test_module:
-    name: fail me
+    attributes:
+      world:
+        - hello world
+      mars:
+        - hello mars
 '''
 
 RETURN = '''
