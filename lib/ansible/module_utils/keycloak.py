@@ -45,9 +45,11 @@ URL_REALM_ROLES_BY_ID = "{url}/admin/realms/{realm}/roles-by-id/{rid}"
 
 URL_CLIENTTEMPLATE = "{url}/admin/realms/{realm}/client-templates/{id}"
 URL_CLIENTTEMPLATES = "{url}/admin/realms/{realm}/client-templates"
+URL_DEFAULT_CLIENT_SCOPES = "{url}/admin/realms/{realm}/clients/{id}/default-client-scopes"
+URL_OPTIONAL_CLIENT_SCOPES = "{url}/admin/realms/{realm}/clients/{id}/optional-client-scopes"
 URL_GROUPS = "{url}/admin/realms/{realm}/groups"
 URL_GROUP = "{url}/admin/realms/{realm}/groups/{groupid}"
-
+URL_CLIENT_SCOPES = "{url}/{realm}/client-scopes"
 
 def keycloak_argument_spec():
     """
@@ -196,6 +198,10 @@ class KeycloakAPI(object):
         client_url = URL_CLIENT.format(url=self.baseurl, realm=realm, id=id)
 
         try:
+            # Keycloak >=4.0.0 <= 6.0.0 does not update the default
+            # and optional client scope passed in the client
+            # represenation.
+            self._update_scope(clientrep, realm)
             return open_url(client_url, method='PUT', headers=self.restheaders,
                             data=json.dumps(clientrep), validate_certs=self.validate_certs)
         except Exception as e:
@@ -211,8 +217,13 @@ class KeycloakAPI(object):
         client_url = URL_CLIENTS.format(url=self.baseurl, realm=realm)
 
         try:
-            return open_url(client_url, method='POST', headers=self.restheaders,
+            resp = open_url(client_url, method='POST', headers=self.restheaders,
                             data=json.dumps(clientrep), validate_certs=self.validate_certs)
+            # Keycloak >=4.0.0 <= 6.0.0 does not update the default
+            # and optional client scope passed in the client
+            # represenation.
+            self._update_scope(clientrep, realm)
+            return resp
         except Exception as e:
             self.module.fail_json(msg='Could not create client %s in realm %s: %s'
                                       % (clientrep['clientId'], realm, str(e)))
@@ -600,3 +611,12 @@ class KeycloakAPI(object):
         if 'realm' not in kwargs:
             kwargs['realm'] = realm
         return kwargs
+
+    def _update_scope(self, clientrep, realm):
+        client_scopes = None
+        for client_scope, url in (('defaultClientScopes', URL_DEFAULT_CLIENT_SCOPES),
+                                  ('optionalClientScopes', URL_OPTIONAL_CLIENT_SCOPES)):
+            if client_scope in clientrep:
+                client_scopes |= json.load(
+                    open_url(URL_CLIENT_SCOPES, method='GET', headers=self.restheaders,
+                             validate_certs=self.validate_certs))
