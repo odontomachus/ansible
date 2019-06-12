@@ -27,33 +27,6 @@ description:
        so that the calls are made locally."
 
 options:
-    auth_url:
-        description:
-            - The base url ending in /auth to authenticate against for the KeyCloak API
-    auth_realm:
-        description:
-            - The realm the client used for authenticating against the API is in
-        required: false
-        default: master
-    auth_client_id:
-        description:
-            - The client to authenticate against to login to the KeyCloak API
-        default: admin-cli
-        required: false
-    auth_client_secret:
-        description:
-            - The client secret for the client to authenticate against
-        required: false
-    auth_username:
-        description:
-            - The username to login to the API with
-    validate_certs:
-        description:
-            - Whether to validate the certificate for KeyCloak
-        default: true
-    auth_password:
-        description:
-            - The password of the user to login to the API with
     realm:
         description:
             - The name of the realm the role will be created in.
@@ -90,6 +63,9 @@ options:
                 - client_id (otherwise looks for realm role)
                 - realm: otherwise uses same realm as parent role.
         required: false
+
+extends_documentation_fragment:
+    - keycloak
 
 author:
     - Jonathan Villemaire-Krajden (@odontomachus)
@@ -152,17 +128,23 @@ from ansible.module_utils.keycloak import (
 )
 
 
+def base_role_spec():
+    return dict(
+        realm=dict(type='str', required=True),
+        client_id=dict(type='str', required=False, aliases=['clientId']),
+        name=dict(type='str', required=True),
+    )
+
+
 def run_module():
     # define available arguments/parameters a user can pass to the module
     module_args = dict(
         **keycloak_argument_spec(),
-        realm=dict(type='str', required=True),
-        client_id=dict(type='str', required=False),
-        name=dict(type='str', required=True),
+        **base_role_spec(),
         state=dict(type='str', choices=['present', 'absent'], default='present'),
         description=dict(type='str'),
         attributes=dict(type='dict'),
-        composites=dict(type='list', default=[])
+        composites=dict(type='list', elements='dict', options=base_role_spec, default=[]),
     )
 
     result = dict(
