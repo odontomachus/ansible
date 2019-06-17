@@ -655,9 +655,30 @@ class KeycloakAPI(object):
             open_url(request_url, method=action, headers=self.restheaders,
                      validate_certs=self.validate_certs)
 
-    def get_client_scopes(self, realm):
-        """ Get all the client scopes for the realm. """
+    def get_client_scopes(self, realm="master"):
+        """ Get all the client scopes for the realm.
+
+        :@param realm: Realm to obtain the client scopes for.
+        """
         return json.load(
             open_url(URL_CLIENT_SCOPES.format(url=self.baseurl, realm=realm),
                      method='GET', headers=self.restheaders,
                      validate_certs=self.validate_certs))
+
+    def create_client_scopes(self, name, description="", _id="", protocol="openid-connect",
+                             protocol_mappers=None, attributes={}, realm="master"):
+        """ Get all the client scopes for the realm.
+        :@param name: Name of scope. Must be unique per realm.
+        :@param attributes: map of attributes
+            - consent.screen.text:  The consent screen text
+        :@param _id: the client scope id. Should be left empty most of the time.
+        :@param protocol_mappers:  map of protocol mappers.
+            - id
+        """
+        body = {"name": name, "description": description, "id": _id, "protocol": protocol,
+                "protocolMappers": protocol_mappers, "attributes": attributes}
+        body = dict([(k, v) for k, v in body.items() if v])
+        body = json.dumps(body)
+        resp = open_url(URL_CLIENT_SCOPES.format(url=self.baseurl, realm=realm),
+                        method='POST', data=body, headers=self.restheaders,
+                        validate_certs=self.validate_certs)
