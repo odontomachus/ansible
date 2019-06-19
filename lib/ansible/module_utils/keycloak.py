@@ -665,20 +665,90 @@ class KeycloakAPI(object):
                      method='GET', headers=self.restheaders,
                      validate_certs=self.validate_certs))
 
-    def create_client_scopes(self, name, description="", _id="", protocol="openid-connect",
-                             protocol_mappers=None, attributes={}, realm="master"):
+    def create_client_scope(self, name, id_="", description="", protocol="openid-connect",
+                            protocol_mappers=None, attributes={}, realm="master"):
         """ Get all the client scopes for the realm.
         :@param name: Name of scope. Must be unique per realm.
         :@param attributes: map of attributes
             - consent.screen.text:  The consent screen text
-        :@param _id: the client scope id. Should be left empty most of the time.
+        :@param id_: the client scope id. Should be left empty most of the time.
         :@param protocol_mappers:  map of protocol mappers.
             - id
         """
-        body = {"name": name, "description": description, "id": _id, "protocol": protocol,
+        body = {"name": name, "description": description, "id": id_, "protocol": protocol,
                 "protocolMappers": protocol_mappers, "attributes": attributes}
         body = dict([(k, v) for k, v in body.items() if v])
         body = json.dumps(body)
-        resp = open_url(URL_CLIENT_SCOPES.format(url=self.baseurl, realm=realm),
-                        method='POST', data=body, headers=self.restheaders,
-                        validate_certs=self.validate_certs)
+        try:
+            resp = open_url(URL_CLIENT_SCOPES.format(url=self.baseurl, realm=realm),
+                            method='POST', data=body, headers=self.restheaders,
+                            validate_certs=self.validate_certs)
+            if resp.getcode() == 201:
+                return True
+            else:
+                self.module.fail_json(
+                    msg="Failed to create scope: code: {code}\n message: {message}".format(
+                        code=resp.getcode(), message=resp.read()))
+        except Exception as e:
+            self.module.fail_json(
+                msg="Failed to create scope: message: {message}".format(
+                    code=resp.getcode(), message=e))
+
+    def update_client_scope(self, name, id_, description="", protocol="openid-connect",
+                            protocol_mappers=None, attributes={}, realm="master"):
+        """ Update a client scopes for the realm.
+        :@param name: Name of scope. Must be unique per realm.
+        :@param attributes: map of attributes
+            - consent.screen.text:  The consent screen text
+        :@param id_: the client scope id. Should be left empty most of the time.
+        :@param protocol_mappers:  map of protocol mappers.
+            - id: ID
+        """
+        body = {"name": name, "description": description, "id": id_, "protocol": protocol,
+                "protocolMappers": protocol_mappers, "attributes": attributes}
+        body = dict([(k, v) for k, v in body.items() if v])
+        body = json.dumps(body)
+        try:
+            resp = open_url((URL_CLIENT_SCOPES + "/{id_}").format(url=self.baseurl, id_=id_, realm=realm),
+                            method='PUT', data=body, headers=self.restheaders,
+                            validate_certs=self.validate_certs)
+            if resp.getcode() == 200:
+                return True
+            else:
+                self.module.fail_json(
+                    msg="Failed to update scope: code: {code}\n message: {message}".format(
+                        code=resp.getcode(), message=resp.read()))
+        except Exception as e:
+            self.module.fail_json(
+                msg="Failed to update scope: message: {message}".format(
+                    code=resp.getcode(), message=e))
+
+    def delete_client_scope(self, name=None, id_=None, realm="master"):
+        """ Get all the client scopes for the realm.
+
+        :@param realm: Realm to obtain the client scopes for.
+        """
+        if id_ is None and name is None:
+            self.module.fail_json(msg="Client scope name or id must be provided to delete scope.")
+        if id_ is None:
+            try:
+                id_ = [scope['id'] for scope in
+                       self.get_client_scopes(realm) if scope['name'] == name]
+                id_ = id_[0]
+            except Exception as e:
+                self.module.fail_json(msg="Unable to find scope {name}: {error}" .format(
+                    name=name, error=e))
+        try:
+            resp = open_url((URL_CLIENT_SCOPES + "/{id_}").format(url=self.baseurl, id_=id_, realm=realm),
+                            method='DELETE', headers=self.restheaders,
+                            validate_certs=self.validate_certs)
+            if resp.getcode() == 204:
+                return True
+            else:
+                self.module.fail_json(
+                    msg="Failed to delete scope: code: {code}\n message: {message}".format(
+                        code=resp.getcode(), message=resp.read()))
+        except Exception as e:
+            self.module.fail_json(
+                msg="Failed to delete scope: message: {message}".format(
+                    code=resp.getcode(), message=e))

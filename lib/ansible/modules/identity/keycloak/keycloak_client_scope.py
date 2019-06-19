@@ -84,8 +84,16 @@ EXAMPLES = '''
     auth_realm: master
     auth_username: USERNAME
     auth_password: PASSWORD
+    realm: master
     name: ansible
     state: present
+    attributes:
+      - consent.screen.text: ansible scope
+    id: VOD1Pao9c2
+    description: "ansible scope"
+    protocol: "openid-connect"
+    protocol_mappers:
+      - id: my-mapper
 '''
 
 from ansible.module_utils.basic import AnsibleModule
@@ -99,10 +107,16 @@ def run_module():
     # define available arguments/parameters a user can pass to the module
     module_args = dict(
         **keycloak_argument_spec(),
+        name=dict(type='str', required=True),
+        realm=dict(type='str', default="master"),
         state=dict(type='str', choices=['present', 'absent'], default='present'),
         description=dict(type='str'),
+        id=dict(type='str'),
         attributes=dict(type='dict'),
-        protocol_mappers=dict(type='list', elements='dict', default=[]),
+        protocol=dict(type='str', choices=['openid-connect', 'saml'], default='openid-connect'),
+        protocol_mappers=dict(type='list', elements='dict',
+                              options=dict(id=dict(type='str')),
+                              default=[]),
     )
 
     result = dict(
@@ -119,28 +133,39 @@ def run_module():
         module.exit_json(**result)
 
     realm = module.params.get('realm')
-    client_id = module.params.get('client_id')
     name = module.params.get('name')
     state = module.params.get('state')
+    id_ = module.params.get('id')
 
     # Obtain access token, initialize API
     kc = KeycloakAPI(module)
 
-    role = kc.get_role_by_name(name, realm, client_id)
-    resp = role
+    scopes = kc.get_client_scopes(realm)
+    scopes = [scope for scope in scopes if scope['name'] == name]
+    scope = scopes[0] if scopes else None
     if state == 'present':
-        if role is None:
-            resp = kc.create_role(name, realm, client_id,
-                                  description=module.params.get('description'))
+        if scope is None:
+            resp = kc.create_client_scope(
+                name,
+                id_=id_,
+                description=module.params.get('description'),
+                protocol=module.params.get('protocol'),
+                protocol_mappers=module.params.get('protocol_mappers'),
+                attributes=module.params.get('attributes'),
+                realm=realm)
             result['changed'] = True
-        # Setting the attributes doesn't work on post; only on put.
-        resp = kc.update_role(name, realm, client_id,
-                              description=module.params.get('description'),
-                              attributes=module.params.get('attributes'),
-                              composites=module.params.get('composites'))
-        result['changed'] |= resp == role
-    elif state == 'absent' and role is not None:
-        resp = kc.delete_role(name, realm, client_id)
+        else:
+            resp = kc.update_client_scope(
+                name,
+                scope['id'],
+                description=module.params.get('description'),
+                protocol=module.params.get('protocol'),
+                protocol_mappers=module.params.get('protocol_mappers'),
+                attributes=module.params.get('attributes'),
+                realm=realm)
+            result['changed'] = True
+    elif state == 'absent' and scope is not None:
+        resp = kc.delete_role(name, scope['id'], realm)
         result['changed'] = True
     result['response'] = resp
     module.exit_json(**result)
