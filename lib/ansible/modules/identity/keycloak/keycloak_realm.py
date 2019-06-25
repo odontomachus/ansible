@@ -715,9 +715,9 @@ notes:
     - In the API, a realm representation has further fields which are not covered in this module
       since they have their own API endpoints and (hopefully) their own Ansible modules. Sorted by
       ansible_module, they are
-    - M(keycloak_scope) for I(clientScopeMappings) and I(scopeMappings)
+    - M(keycloak_client_scope_mapping) for I(clientScopeMappings) and I(scopeMappings)
     - M(keycloak_client) for I(client)
-    - M(keycloak_clienttemplate) for I(clientTemplates)
+    - M(keycloak_clienttemplate) for I(clientTemplates) (KeyCloak < 4.0)
     - M(keycloak_group) for I(groups)
     - No ansible module yet for I(authenticationFlows), I(authenticatorConfig), I(components),
       I(users), I(protocolMappers) (but see M(keycloak_client) and M(keycloak_clienttemplate)),
