@@ -48,18 +48,19 @@ options:
     target:
         description:
             - Scope mappings can be acted upon for either clients or client mappings. Choose one
-              here; the default ist C(client).
+              here; the default is C(client). C(client-template) applies to KeyCloak < 4.0,
+              C(client-scope applies to KeyCloak >= 4.0)
         default: 'client'
-        choices: ['client', 'client-template']
+        choices: ['client', 'client-template', 'client-scope']
 
     id:
         description:
-            - id of client or client template to work on scope mappings on. Either this or one of
+            - id of client or client template or client scope to work on scope mappings on. Either this or one of
               I(client_id)/I(name) are required.
 
     name:
         description:
-            - name of client template to work on (if I(target) is C('clienttemplate')). Either this
+            - name of client template/scope to work on (if I(target) is C('client-template') or C('client-scope')). Either this
               or I(id) is required.
 
     realm:
@@ -172,6 +173,25 @@ EXAMPLES = '''
     auth_password: PASSWORD
     realm: testrealm
     target: client-template
+    state: present
+    type: client
+    name: testclienttemplate
+    clientroles:
+      testclient01:
+        - name: testrole01
+      testclient02:
+        - name: testrole02
+
+- name: Add client roles to a client-scope scope mapping
+  local_action:
+    module: keycloak_client_scope_mapping
+    auth_client_id: admin-cli
+    auth_keycloak_url: https://auth.example.com/auth
+    auth_realm: master
+    auth_username: USERNAME
+    auth_password: PASSWORD
+    realm: testrealm
+    target: client-scope
     state: present
     type: client
     name: testclienttemplate
@@ -308,7 +328,7 @@ def main():
 
     meta_args = dict(
         realm=dict(),
-        target=dict(default='client', choices=['client', 'client-template']),
+        target=dict(default='client', choices=['client', 'client-template', 'client-scope']),
         id=dict(),
         name=dict(),
         client_id=dict(),
@@ -370,13 +390,18 @@ def main():
                 cid = kc.get_client_id(module.params.get('client_id'), realm=realm)
             else:
                 module.fail_json(msg='When target is client, you need to specify an id or client_id.')
-        else:
+        elif target == 'client-template':
             if module.params.get('name') is not None:
                 cid = kc.get_client_template_id(module.params.get('name'), realm=realm)
             else:
                 module.fail_json(msg='When target is client-template, you need to specify an id or a name.')
+        else:
+            if module.params.get('name') is not None:
+                cid = kc.get_client_scope_id(module.params.get('name'), realm=realm)
+            else:
+                module.fail_json(msg='When target is client-scope, you need to specify an id or a name.')
     if cid is None:
-        module.fail_json(msg='Could not obtain valid client(-template) id to work on.')
+        module.fail_json(msg='Could not obtain valid client(-template/scope) id to work on.')
 
     if roletype == 'realm':
         # in this case, the loop below needs to be run once with a None item

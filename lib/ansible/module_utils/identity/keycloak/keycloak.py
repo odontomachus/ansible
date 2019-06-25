@@ -51,6 +51,8 @@ URL_REALM_ROLE_BY_ID = "{url}/admin/realms/{realm}/roles-by-id/{id}"
 
 URL_CLIENTTEMPLATE = "{url}/admin/realms/{realm}/client-templates/{id}"
 URL_CLIENTTEMPLATES = "{url}/admin/realms/{realm}/client-templates"
+URL_CLIENT_SCOPES = "{url}/admin/realms/{realm}/client-scopes"
+URL_CLIENT_SCOPE = "{url}/admin/realms/{realm}/client-scopes/{id}"
 URL_GROUPS = "{url}/admin/realms/{realm}/groups"
 URL_GROUP = "{url}/admin/realms/{realm}/groups/{groupid}"
 URL_EFFECTIVE_REALM_ROLE_IN_GROUP = "{url}/admin/realms/{realm}/groups/{group_id}/role-mappings/realm/composite"
@@ -488,6 +490,77 @@ class KeycloakAPI(object):
             self.module.fail_json(msg='Could not delete client template %s in realm %s: %s'
                                       % (id, realm, str(e)))
 
+    def get_client_scopes(self, realm):
+        """ Get all the client scopes for the realm.
+
+        :@param realm: Realm to obtain the client scopes for.
+        :@return: list of client scopes
+        """
+        return json.load(open_url(URL_CLIENT_SCOPES.format(url=self.baseurl, realm=realm),
+                                  method='GET', headers=self.restheaders.header,
+                                  validate_certs=self.validate_certs))
+
+    def get_client_scope_id(self, name, realm):
+        """ Get all the client scopes for the realm.
+
+        :@param name: name of the scope
+        :@param realm: Realm to search for the client scope
+        :@return: The scope id if it was found or None
+        """
+        scopes = self.get_client_scopes(realm)
+        scope = [scope['id'] for scope in scopes if scope['name'] == name]
+        if scope:
+            return scope[0]
+
+    def create_client_scope(self, realm, **kwargs):
+        """ Get all the client scopes for the realm.
+
+        :@param name: the name of the scope (must be unique per realm)
+        :@param id: the uuid of the scope
+        :@param realm: the realm to update the scope in
+        :@param attributes: the scope attributes
+        :@param protocol: the scope protocol
+        :@param realm: Realm to create the client scope in.
+        """
+        response = open_url(URL_CLIENT_SCOPES.format(url=self.baseurl, realm=realm),
+                            method='POST', headers=self.restheaders.header,
+                            data=json.dumps(kwargs),
+                            validate_certs=self.validate_certs)
+        if response.getcode() != 201:
+            raise KeycloakError("Failed to create client scope. Response code: %d, response body: %s" %
+                                response.getcode(), to_text(response))
+
+    def update_client_scope(self, id, realm, **kwargs):
+        """ Get all the client scopes for the realm.
+
+        :@param name: the name of the scope
+        :@param id: the uuid of the scope
+        :@param realm: the realm to update the scope in
+        :@param attributes: the scope attributes
+        :@param protocol: the scope protocol
+        :@param realm: Realm to create the client scope in.
+        """
+        response = open_url(URL_CLIENT_SCOPE.format(url=self.baseurl, realm=realm, id=id),
+                            method='PUT', headers=self.restheaders.header,
+                            data=json.dumps(kwargs),
+                            validate_certs=self.validate_certs)
+        if response.getcode() != 204:
+            raise KeycloakError("Failed to update client scope. Response code: %d, response body: %s" %
+                                (response.getcode(), to_text(response.read())))
+
+    def delete_client_scope(self, id, realm):
+        """ Get all the client scopes for the realm.
+
+        :@param id: the uuid of the scope
+        :@param realm: Realm to create the client scope in.
+        """
+        response = open_url(URL_CLIENT_SCOPE.format(url=self.baseurl, realm=realm, id=id),
+                            method='DELETE', headers=self.restheaders.header,
+                            validate_certs=self.validate_certs)
+        if response.getcode() != 200:
+            raise KeycloakError("Failed to delete client scope. Response code: %d, response body: %s" %
+                                response.getcode(), to_text(response))
+
     def get_realm_by_name(self, realm):
         """ Get a top-level realm representation for a named realm
 
@@ -563,7 +636,7 @@ class KeycloakAPI(object):
         Get scope mappings for client or client template
 
         :param id: id of client or client template
-        :param target: either client or client-template
+        :param target: either client or client-template for KeyCloak < 4.0 or client-scope for keycloak >= 4.0
         :param realm: realm of the client or client template
         :return: dict of mappings with keys 'clientMappings' and 'realmMappings'
         """
