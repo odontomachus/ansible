@@ -473,6 +473,20 @@ options:
                 description:
                     - For OpenID-Connect clients, client certificate for validating JWT issued by
                       client and signed by its key, base64-encoded.
+    default_client_scopes:
+        description:
+            - The scopes the client requires by default. The scopes should already exist.
+              (KeyCloak >= 4.0.0, replaces client templates)
+        aliases:
+            - defaultClientScopes
+        version_added: "2.9"
+    optional_client_scopes:
+        description:
+            - The scopes the client can add based on the request. The scopes should already
+              exist. (KeyCloak >= 4.0.0, replaces client templates)
+        aliases:
+            - optionalClientScopes
+        version_added: "2.9"
 
 extends_documentation_fragment:
     - keycloak
@@ -503,6 +517,22 @@ EXAMPLES = '''
     auth_password: PASSWORD
     client_id: test
     state: absent
+
+- name: Create or update Keycloak >= 4.x client with default and optional client scopes
+  local_action:
+    module: keycloak_client
+    auth_client_id: admin-cli
+    auth_keycloak_url: https://auth.example.com/auth
+    auth_realm: master
+    auth_username: USERNAME
+    auth_password: PASSWORD
+    client_id: test
+    state: present
+    default_client_scopes:
+      - email
+      - openid
+    optional_client_scopes:
+      - profile
 
 - name: Create or update a Keycloak client (with all the bells and whistles)
   local_action:
@@ -705,6 +735,8 @@ def main():
         use_template_mappers=dict(type='bool', aliases=['useTemplateMappers']),
         protocol_mappers=dict(type='list', elements='dict', options=protmapper_spec, aliases=['protocolMappers']),
         authorization_settings=dict(type='dict', aliases=['authorizationSettings']),
+        default_client_scopes=dict(type='list', aliases=['defaultClientScopes']),
+        optional_client_scopes=dict(type='list', aliases=['optionalClientScopes']),
     )
     argument_spec.update(meta_args)
 
