@@ -33,6 +33,7 @@ from copy import deepcopy
 __metaclass__ = type
 
 import json
+import functools
 
 from ansible.module_utils.urls import open_url
 from ansible.module_utils._text import to_text
@@ -208,6 +209,25 @@ def check_role_representation(rep):
                     return False, 'Composite role specification invalid, relam roles must be a list, "%s" is not one' % rep['composites'][c]
     return True, ''
 
+def wipe_group_cache(method):
+    @functools.wraps(method)
+    def wrapper(self, *method_args, **method_kwargs):
+        result = method(self, *method_args, **method_kwargs)
+        self.group_cache.pop(method_kwargs['realm'], None)
+        return result
+    return wrapper
+
+def group_cache(method):
+    @functools.wraps(method)
+    def wrapper(self, *method_args, **method_kwargs):
+        realm = method_kwargs['realm']
+        if realm in self.group_cache:
+            return self.group_cache[realm]
+        groups = method(self, *method_args, **method_kwargs)
+        self.group_cache[realm] = groups
+        return groups
+    return wrapper
+
 
 class KeycloakError(Exception):
     pass
@@ -263,11 +283,12 @@ class KeycloakAPI(object):
     """ Keycloak API access; Keycloak uses OAuth 2.0 to protect its API, an access token for which
         is obtained through OpenID connect
     """
-    def __init__(self, module, connection_header):
+    def __init__(self, module, connection_header, group_cache):
         self.module = module
         self.baseurl = self.module.params.get('auth_keycloak_url')
         self.validate_certs = self.module.params.get('validate_certs')
         self.restheaders = connection_header
+        self.group_cache = group_cache
 
     def get_clients(self, realm='master', filter=None):
         """ Obtains client representations for clients in a realm
@@ -1133,6 +1154,7 @@ class KeycloakAPI(object):
                 role_url=role_url
             )
 
+    @group_cache
     def get_groups(self, realm="master"):
         """ Fetch the name and ID of all groups on the Keycloak server.
 
@@ -1229,7 +1251,7 @@ class KeycloakAPI(object):
                 return self.find_path_in_groups(path, group['subGroups'])
         return None
 
-
+    @wipe_group_cache
     def add_group_to_parent(self, parent, child, realm="master"):
         """ Set an existing keycloak group as a child of a given existing parent
         group within a realm.
@@ -1277,6 +1299,7 @@ class KeycloakAPI(object):
                 msg="Could not fetch group role %s for client %s in realm %s: %s" % (
                     group_uuid, client_uuid, realm, str(e)))
 
+    @wipe_group_cache
     def create_group(self, grouprep, realm="master"):
         """ Create a Keycloak group.
 
@@ -1291,6 +1314,7 @@ class KeycloakAPI(object):
             self.module.fail_json(msg="Could not create group %s in realm %s: %s"
                                       % (grouprep['name'], realm, str(e)))
 
+    @wipe_group_cache
     def update_group(self, grouprep, realm="master"):
         """ Update an existing group.
 
@@ -1306,6 +1330,7 @@ class KeycloakAPI(object):
             self.module.fail_json(msg='Could not update group %s in realm %s: %s'
                                       % (grouprep['name'], realm, str(e)))
 
+    @wipe_group_cache
     def delete_group(self, name=None, groupid=None, realm="master"):
         """ Delete a group. One of name or groupid must be provided.
 
@@ -1342,3 +1367,6 @@ class KeycloakAPI(object):
 
         except Exception as e:
             self.module.fail_json(msg="Unable to delete group %s: %s" % (groupid, str(e)))
+
+    def get_group_cache(self):
+        return self.group_cache

@@ -226,6 +226,7 @@ def main():
         name=dict(type='str'),
         path=dict(type='str'),
         attributes=dict(type='dict'),
+        group_cache=dict(type='dict'),
     )
 
     argument_spec.update(meta_args)
@@ -253,7 +254,9 @@ def main():
     name = module.params.get('name')
     path = module.params.get('path')
     attributes = module.params.get('attributes')
+    group_cache=module.params.get('group_cache')
 
+    kc = KeycloakAPI(module, connection_header, group_cache or {})
 
     before_group = None         # current state of the group, for merging.
 
@@ -275,7 +278,7 @@ def main():
             module.params['attributes'][key] = [val] if not isinstance(val, list) else val
 
     group_params = [x for x in module.params
-                    if x not in list(keycloak_argument_spec().keys()) + ['state', 'realm'] and
+                    if x not in list(keycloak_argument_spec().keys()) + ['state', 'realm', 'group_cache'] and
                     module.params.get(x) is not None]
 
     # build a changeset
@@ -322,6 +325,7 @@ def main():
         result['group'] = after_group
         result['msg'] = 'Group {name} has been created with ID {id}'.format(name=after_group['name'],
                                                                             id=after_group['id'])
+        result['group_cache'] = kc.get_group_cache()
 
     else:
         if state == 'present':
@@ -330,6 +334,7 @@ def main():
                 result['changed'] = False
                 result['group'] = updated_group
                 result['msg'] = "No changes required to group {name}.".format(name=before_group['name'])
+                result['group_cache'] = kc.get_group_cache()
                 module.exit_json(**result)
 
             # update the existing group
@@ -348,6 +353,7 @@ def main():
 
             result['group'] = after_group
             result['msg'] = "Group {id} has been updated".format(id=after_group['id'])
+            result['group_cache'] = kc.get_group_cache()
 
             module.exit_json(**result)
 
@@ -366,6 +372,7 @@ def main():
 
             result['changed'] = True
             result['msg'] = "Group {name} has been deleted".format(name=before_group['name'])
+            result['group_cache'] = kc.get_group_cache()
 
             module.exit_json(**result)
 
