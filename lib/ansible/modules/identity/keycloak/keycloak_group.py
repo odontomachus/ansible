@@ -224,14 +224,15 @@ def main():
         realm=dict(default='master'),
         id=dict(type='str'),
         name=dict(type='str'),
-        attributes=dict(type='dict')
+        path=dict(type='str'),
+        attributes=dict(type='dict'),
     )
 
     argument_spec.update(meta_args)
 
     module = AnsibleModule(argument_spec=argument_spec,
                            supports_check_mode=True,
-                           required_one_of=([['id', 'name']]))
+                           required_one_of=([['id', 'name', 'path']]))
 
     result = dict(changed=False, msg='', diff={}, group='')
 
@@ -245,21 +246,24 @@ def main():
         auth_password=module.params.get('auth_password'),
         client_secret=module.params.get('auth_client_secret'),
     )
-    kc = KeycloakAPI(module, connection_header)
 
     realm = module.params.get('realm')
     state = module.params.get('state')
     gid = module.params.get('id')
     name = module.params.get('name')
+    path = module.params.get('path')
     attributes = module.params.get('attributes')
+
 
     before_group = None         # current state of the group, for merging.
 
     # does the group already exist?
-    if gid is None:
-        before_group = kc.get_group_by_name(name, realm=realm)
-    else:
+    if gid is not None:
         before_group = kc.get_group_by_groupid(gid, realm=realm)
+    elif path is not None:
+        before_group = kc.get_group_by_path(path, realm=realm)
+    else:
+        before_group = kc.get_group_by_name(name, realm=realm)
 
     before_group = {} if before_group is None else before_group
 
@@ -310,6 +314,10 @@ def main():
         # do it for real!
         kc.create_group(updated_group, realm=realm)
         after_group = kc.get_group_by_name(name, realm)
+
+        if path is not None:
+            parent = kc.get_group_by_path(path[:-len(name)-1], realm=realm)
+            kc.add_group_to_parent(parent, child=after_group, realm=realm)
 
         result['group'] = after_group
         result['msg'] = 'Group {name} has been created with ID {id}'.format(name=after_group['name'],

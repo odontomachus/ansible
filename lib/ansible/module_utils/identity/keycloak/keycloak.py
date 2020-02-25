@@ -57,6 +57,7 @@ URL_DEFAULT_CLIENT_SCOPES = "{url}/admin/realms/{realm}/clients/{id}/default-cli
 URL_OPTIONAL_CLIENT_SCOPES = "{url}/admin/realms/{realm}/clients/{id}/optional-client-scopes"
 URL_GROUPS = "{url}/admin/realms/{realm}/groups"
 URL_GROUP = "{url}/admin/realms/{realm}/groups/{groupid}"
+URL_GROUP_CHILDREN = "{url}/admin/realms/{realm}/groups/{groupid}/children"
 URL_EFFECTIVE_REALM_ROLE_IN_GROUP = "{url}/admin/realms/{realm}/groups/{group_id}/role-mappings/realm/composite"
 URL_REALM_ROLE_IN_GROUP = "{url}/admin/realms/{realm}/groups/{group_id}/role-mappings/realm/"
 URL_EFFECTIVE_CLIENT_ROLE_IN_GROUP = "{url}/admin/realms/{realm}/groups/{group_id}/role-mappings/clients/{client_uuid}/composite"
@@ -1140,9 +1141,10 @@ class KeycloakAPI(object):
 
         :param realm: Return the groups of this realm (default "master").
         """
+
         groups_url = URL_GROUPS.format(url=self.baseurl, realm=realm)
         try:
-            return json.load(open_url(groups_url, method="GET", headers=self.restheaders.header,
+            return json.load(open_url('%s?briefRepresentation=false' % groups_url, method="GET", headers=self.restheaders.header,
                                       validate_certs=self.validate_certs))
         except Exception as e:
             self.module.fail_json(msg="Could not fetch list of groups in realm %s: %s"
@@ -1183,7 +1185,7 @@ class KeycloakAPI(object):
         :param name: Name of the group to fetch.
         :param realm: Realm in which the group resides; default 'master'
         """
-        groups_url = URL_GROUPS.format(url=self.baseurl, realm=realm)
+
         try:
             all_groups = self.get_groups(realm=realm)
 
@@ -1196,6 +1198,54 @@ class KeycloakAPI(object):
         except Exception as e:
             self.module.fail_json(msg="Could not fetch group %s in realm %s: %s"
                                       % (name, realm, str(e)))
+
+
+    def get_group_by_path(self, path, realm="master"):
+        """ Fetch a keycloak group within a realm based on its path.
+
+        The Keycloak API does not allow filtering of the Groups resource by path.
+        As a result, this method first retrieves the entire list of groups
+        then performs a second query to fetch the group.
+
+        If the group does not exist, None is returned.
+        :param path: Path of the group to fetch in the form of /path/to/group.
+        :param realm: Realm in which the group resides; default 'master'
+        """
+
+        try:
+            all_groups = self.get_groups(realm=realm)
+
+            return self.find_path_in_groups(path, all_groups)
+
+        except Exception as e:
+            self.module.fail_json(msg="Could not fetch group %s in realm %s: %s"
+                                      % (path, realm, str(e)))
+
+    def find_path_in_groups(self, path, groups):
+        for group in groups:
+            if group['path'] == path:
+                return group
+            if path.startswith('%s/' % group['path']):
+                return self.find_path_in_groups(path, group['subGroups'])
+        return None
+
+
+    def add_group_to_parent(self, parent, child, realm="master"):
+        """ Set an existing keycloak group as a child of a given existing parent
+        group within a realm.
+
+        :param parent: Parent group with an id.
+        :param parent: Child group with an id.
+        :param realm: Realm in which the group resides; default 'master'
+        """
+
+        group_children_url = URL_GROUP_CHILDREN.format(url=self.baseurl, realm=realm, groupid=parent['id'])
+        try:
+            return open_url(group_children_url, method='POST', headers=self.restheaders.header,
+                            data=json.dumps({'id':child['id']}), validate_certs=self.validate_certs)
+        except Exception as e:
+            self.module.fail_json(msg="Could not put group %s in parent %s in realm %s: %s"
+                                      % (child['name'], parent['path'] ,realm, str(e)))
 
     def get_realm_roles_of_group(self, group_uuid, realm='master'):
         effective_role_url = URL_EFFECTIVE_REALM_ROLE_IN_GROUP.format(
