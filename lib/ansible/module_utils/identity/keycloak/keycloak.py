@@ -227,8 +227,13 @@ class KeycloakAuthorizationHeader(object):
         # Remove empty items, for instance missing client_secret
         self.payload = dict(
             (k, v) for k, v in temp_payload.items() if v is not None)
-        self.header = {}
-        self.refresh_token()
+        self._header = {}
+
+    @property
+    def header(self):
+        if self._header == {}:
+            self.refresh_token()
+        return self._header
 
     def refresh_token(self):
         try:
@@ -244,7 +249,7 @@ class KeycloakAuthorizationHeader(object):
                                 % (self.auth_url, str(e)))
 
         try:
-            self.header = {
+            self._header = {
                 'Authorization': 'Bearer ' + r['access_token'],
                 'Content-Type': 'application/json'
             }
