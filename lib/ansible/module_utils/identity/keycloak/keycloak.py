@@ -33,6 +33,7 @@ from copy import deepcopy
 __metaclass__ = type
 
 import json
+import functools
 
 from ansible.module_utils.urls import open_url
 from ansible.module_utils._text import to_text
@@ -57,6 +58,7 @@ URL_DEFAULT_CLIENT_SCOPES = "{url}/admin/realms/{realm}/clients/{id}/default-cli
 URL_OPTIONAL_CLIENT_SCOPES = "{url}/admin/realms/{realm}/clients/{id}/optional-client-scopes"
 URL_GROUPS = "{url}/admin/realms/{realm}/groups"
 URL_GROUP = "{url}/admin/realms/{realm}/groups/{groupid}"
+URL_GROUP_CHILDREN = "{url}/admin/realms/{realm}/groups/{groupid}/children"
 URL_EFFECTIVE_REALM_ROLE_IN_GROUP = "{url}/admin/realms/{realm}/groups/{group_id}/role-mappings/realm/composite"
 URL_REALM_ROLE_IN_GROUP = "{url}/admin/realms/{realm}/groups/{group_id}/role-mappings/realm/"
 URL_EFFECTIVE_CLIENT_ROLE_IN_GROUP = "{url}/admin/realms/{realm}/groups/{group_id}/role-mappings/clients/{client_uuid}/composite"
@@ -207,6 +209,25 @@ def check_role_representation(rep):
                     return False, 'Composite role specification invalid, relam roles must be a list, "%s" is not one' % rep['composites'][c]
     return True, ''
 
+def wipe_group_cache(method):
+    @functools.wraps(method)
+    def wrapper(self, *method_args, **method_kwargs):
+        result = method(self, *method_args, **method_kwargs)
+        self.group_cache.pop(method_kwargs['realm'], None)
+        return result
+    return wrapper
+
+def group_cache(method):
+    @functools.wraps(method)
+    def wrapper(self, *method_args, **method_kwargs):
+        realm = method_kwargs['realm']
+        if realm in self.group_cache:
+            return self.group_cache[realm]
+        groups = method(self, *method_args, **method_kwargs)
+        self.group_cache[realm] = groups
+        return groups
+    return wrapper
+
 
 class KeycloakError(Exception):
     pass
@@ -227,8 +248,13 @@ class KeycloakAuthorizationHeader(object):
         # Remove empty items, for instance missing client_secret
         self.payload = dict(
             (k, v) for k, v in temp_payload.items() if v is not None)
-        self.header = {}
-        self.refresh_token()
+        self._header = {}
+
+    @property
+    def header(self):
+        if self._header == {}:
+            self.refresh_token()
+        return self._header
 
     def refresh_token(self):
         try:
@@ -244,7 +270,7 @@ class KeycloakAuthorizationHeader(object):
                                 % (self.auth_url, str(e)))
 
         try:
-            self.header = {
+            self._header = {
                 'Authorization': 'Bearer ' + r['access_token'],
                 'Content-Type': 'application/json'
             }
@@ -257,11 +283,12 @@ class KeycloakAPI(object):
     """ Keycloak API access; Keycloak uses OAuth 2.0 to protect its API, an access token for which
         is obtained through OpenID connect
     """
-    def __init__(self, module, connection_header):
+    def __init__(self, module, connection_header, group_cache):
         self.module = module
         self.baseurl = self.module.params.get('auth_keycloak_url')
         self.validate_certs = self.module.params.get('validate_certs')
         self.restheaders = connection_header
+        self.group_cache = group_cache
 
     def get_clients(self, realm='master', filter=None):
         """ Obtains client representations for clients in a realm
@@ -1127,6 +1154,7 @@ class KeycloakAPI(object):
                 role_url=role_url
             )
 
+    @group_cache
     def get_groups(self, realm="master"):
         """ Fetch the name and ID of all groups on the Keycloak server.
 
@@ -1135,9 +1163,10 @@ class KeycloakAPI(object):
 
         :param realm: Return the groups of this realm (default "master").
         """
+
         groups_url = URL_GROUPS.format(url=self.baseurl, realm=realm)
         try:
-            return json.load(open_url(groups_url, method="GET", headers=self.restheaders.header,
+            return json.load(open_url('%s?briefRepresentation=false' % groups_url, method="GET", headers=self.restheaders.header,
                                       validate_certs=self.validate_certs))
         except Exception as e:
             self.module.fail_json(msg="Could not fetch list of groups in realm %s: %s"
@@ -1178,7 +1207,7 @@ class KeycloakAPI(object):
         :param name: Name of the group to fetch.
         :param realm: Realm in which the group resides; default 'master'
         """
-        groups_url = URL_GROUPS.format(url=self.baseurl, realm=realm)
+
         try:
             all_groups = self.get_groups(realm=realm)
 
@@ -1191,6 +1220,54 @@ class KeycloakAPI(object):
         except Exception as e:
             self.module.fail_json(msg="Could not fetch group %s in realm %s: %s"
                                       % (name, realm, str(e)))
+
+
+    def get_group_by_path(self, path, realm="master"):
+        """ Fetch a keycloak group within a realm based on its path.
+
+        The Keycloak API does not allow filtering of the Groups resource by path.
+        As a result, this method first retrieves the entire list of groups
+        then performs a second query to fetch the group.
+
+        If the group does not exist, None is returned.
+        :param path: Path of the group to fetch in the form of /path/to/group.
+        :param realm: Realm in which the group resides; default 'master'
+        """
+
+        try:
+            all_groups = self.get_groups(realm=realm)
+
+            return self.find_path_in_groups(path, all_groups)
+
+        except Exception as e:
+            self.module.fail_json(msg="Could not fetch group %s in realm %s: %s"
+                                      % (path, realm, str(e)))
+
+    def find_path_in_groups(self, path, groups):
+        for group in groups:
+            if group['path'] == path:
+                return group
+            if path.startswith('%s/' % group['path']):
+                return self.find_path_in_groups(path, group['subGroups'])
+        return None
+
+    @wipe_group_cache
+    def add_group_to_parent(self, parent, child, realm="master"):
+        """ Set an existing keycloak group as a child of a given existing parent
+        group within a realm.
+
+        :param parent: Parent group with an id.
+        :param parent: Child group with an id.
+        :param realm: Realm in which the group resides; default 'master'
+        """
+
+        group_children_url = URL_GROUP_CHILDREN.format(url=self.baseurl, realm=realm, groupid=parent['id'])
+        try:
+            return open_url(group_children_url, method='POST', headers=self.restheaders.header,
+                            data=json.dumps({'id':child['id']}), validate_certs=self.validate_certs)
+        except Exception as e:
+            self.module.fail_json(msg="Could not put group %s in parent %s in realm %s: %s"
+                                      % (child['name'], parent['path'] ,realm, str(e)))
 
     def get_realm_roles_of_group(self, group_uuid, realm='master'):
         effective_role_url = URL_EFFECTIVE_REALM_ROLE_IN_GROUP.format(
@@ -1222,6 +1299,7 @@ class KeycloakAPI(object):
                 msg="Could not fetch group role %s for client %s in realm %s: %s" % (
                     group_uuid, client_uuid, realm, str(e)))
 
+    @wipe_group_cache
     def create_group(self, grouprep, realm="master"):
         """ Create a Keycloak group.
 
@@ -1236,6 +1314,7 @@ class KeycloakAPI(object):
             self.module.fail_json(msg="Could not create group %s in realm %s: %s"
                                       % (grouprep['name'], realm, str(e)))
 
+    @wipe_group_cache
     def update_group(self, grouprep, realm="master"):
         """ Update an existing group.
 
@@ -1251,6 +1330,7 @@ class KeycloakAPI(object):
             self.module.fail_json(msg='Could not update group %s in realm %s: %s'
                                       % (grouprep['name'], realm, str(e)))
 
+    @wipe_group_cache
     def delete_group(self, name=None, groupid=None, realm="master"):
         """ Delete a group. One of name or groupid must be provided.
 
@@ -1287,3 +1367,6 @@ class KeycloakAPI(object):
 
         except Exception as e:
             self.module.fail_json(msg="Unable to delete group %s: %s" % (groupid, str(e)))
+
+    def get_group_cache(self):
+        return self.group_cache
