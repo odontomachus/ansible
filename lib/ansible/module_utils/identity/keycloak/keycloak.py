@@ -283,11 +283,13 @@ class KeycloakAPI(object):
     """ Keycloak API access; Keycloak uses OAuth 2.0 to protect its API, an access token for which
         is obtained through OpenID connect
     """
-    def __init__(self, module, connection_header, group_cache):
+    def __init__(self, module, connection_header, group_cache=None):
         self.module = module
         self.baseurl = self.module.params.get('auth_keycloak_url')
         self.validate_certs = self.module.params.get('validate_certs')
         self.restheaders = connection_header
+        if group_cache is None:
+            group_cache = {}
         self.group_cache = group_cache
 
     def get_clients(self, realm='master', filter=None):
